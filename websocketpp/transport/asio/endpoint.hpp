@@ -35,6 +35,7 @@
 #include <websocketpp/uri.hpp>
 #include <websocketpp/logger/levels.hpp>
 
+#include <websocketpp/common/asio.hpp>
 #include <websocketpp/common/functional.hpp>
 
 #include <sstream>
@@ -100,7 +101,7 @@ public:
     explicit endpoint()
       : m_io_service(NULL)
       , m_external_io_service(false)
-      , m_listen_backlog(0)
+      , m_listen_backlog(lib::asio::socket_base::max_connections)
       , m_reuse_addr(false)
       , m_v6only(V6ONLY_DEFAULT)
       , m_state(UNINITIALIZED)
@@ -325,8 +326,10 @@ public:
      *
      * New values affect future calls to listen only.
      *
-     * A value of zero will use the operating system default. This is the
-     * default value.
+     * The default value is specified as *::asio::socket_base::max_connections
+     * which uses the operating system defined maximum queue length. Your OS
+     * may restrict or silently lower this value. A value of zero may cause
+     * all connections to be rejected.
      *
      * @since 0.3.0
      *
@@ -339,10 +342,13 @@ public:
     /// Sets whether to use the SO_REUSEADDR flag when opening listening sockets
     /**
      * Specifies whether or not to use the SO_REUSEADDR TCP socket option. What
-     * this flag does depends on your operating system. Please consult operating
-     * system documentation for more details.
+     * this flag does depends on your operating system.
      *
-     * New values affect future calls to listen only.
+     * Please consult operating system documentation for more details. There
+     * may be security consequences to enabling this option.
+     *
+     * New values affect future calls to listen only so set this value prior to
+     * calling listen.
      *
      * The default is false.
      *
@@ -775,7 +781,7 @@ public:
     void async_accept(transport_con_ptr tcon, accept_handler callback,
         lib::error_code & ec)
     {
-        if (m_state != LISTENING) {
+        if (m_state != LISTENING || !m_acceptor) {
             using websocketpp::error::make_error_code;
             ec = make_error_code(websocketpp::error::async_accept_not_listening);
             return;
@@ -827,7 +833,7 @@ protected:
      * haven't been constructed yet, and cannot be used in the transport
      * destructor as they will have been destroyed by then.
      */
-    void init_logging(alog_type* a, elog_type* e) {
+    void init_logging(const lib::shared_ptr<alog_type>& a, const lib::shared_ptr<elog_type>& e) {
         m_alog = a;
         m_elog = e;
     }
@@ -1166,8 +1172,8 @@ private:
     bool                m_reuse_addr;
     v6only_option       m_v6only;
 
-    elog_type* m_elog;
-    alog_type* m_alog;
+    lib::shared_ptr<elog_type> m_elog;
+    lib::shared_ptr<alog_type> m_alog;
 
     // Transport state
     state               m_state;
